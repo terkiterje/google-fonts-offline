@@ -26,5 +26,8 @@
     "local"
   ],
   "preferGlobal": true,
-  "license": "CC"
+  "license": "CC",
+  "dependencies": {
+    "request": "^2.72.0"
+  }
 }

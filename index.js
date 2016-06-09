@@ -2,7 +2,7 @@ var fs = require('fs'),
     path = require('path'),
     stream = require('stream'),
     url = require('url'),
-    http = require('http'),
+    request = require('request'),
 
     //                                            Group[0]
     //                                            vvvvvvvv
@@ -36,7 +36,7 @@ var fs = require('fs'),
 
         // WOFF for Windows
         "Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1",
-        
+
         // TTF needs Opera
         "Opera/9.80 (Macintosh; Intel Mac OS X; U; en) Presto/2.2.15 Version/10.00",
 
@@ -53,6 +53,7 @@ var fs = require('fs'),
     requestsInProgress = 0,
 
     urlToProcess = '',
+
 
     httpOptions = {
         'hostname' : '',
@@ -75,11 +76,10 @@ exports.download = function (urlToProcess) {
         process.exit(0);
     }
 
-    httpOptions.hostname = url.parse(urlToProcess).hostname;
-    httpOptions.path = url.parse(urlToProcess).path;
+    httpOptions.url = urlToProcess;
 
     createOutputDir(scriptOutputDir);
-    processGoogleFontsUrl(urlToProcess);
+    processGoogleFontsUrl(userAgents.shift());
 
     (function awaitHttpRequests () {
 
@@ -108,28 +108,20 @@ function processGoogleFontsUrl (userAgent) {
 
     requestsInProgress += 1;
 
-    httpCallback = function (response) {
-        var buffer = [];
+    requestCallback = function (error,response,body) {
+          var css = body;
+          if (error) return handleHttpError(error);
 
-        response.on('data', function (chunk) {
-            buffer.push(chunk);
-        });
+          css.match(fontFaceRulePattern).forEach(processFontface);
 
-        response.on('end', function () {
-            var css = Buffer.concat(buffer).toString();
-            
-            css.match(fontFaceRulePattern).forEach(processFontface);
+          requestsInProgress -= 1;
 
-            requestsInProgress -= 1;
-
-            processGoogleFontsUrl(userAgents.shift());
-        });
+          processGoogleFontsUrl(userAgents.shift());
     };
 
     httpOptions.headers['User-Agent'] = userAgent;
 
-    http.get(httpOptions, httpCallback)
-        .on('error', handleHttpError);
+    request(httpOptions, requestCallback);
 }
 
 function processFontface (css) {
@@ -166,24 +158,16 @@ function composeFontFaceKey(css) {
 }
 
 function downloadFont(url, filename) {
-    
+
     console.log("  Downloading %s...", filename);
 
     requestsInProgress += 1;
 
-    http.get(url, function (response) {
-        var buffer = [];
-
-        response.on('data', function (chunk) {
-            buffer.push(chunk);
-        });
-
-        response.on('end', function () {
-            fs.writeFile(path.join(scriptOutputDir, filename), Buffer.concat(buffer));
-            requestsInProgress -= 1;
-        });
+    request({url:url,encoding:null}, function (error,response,body) {
+        if (error) return handleHttpError(error);
+        fs.writeFile(path.join(scriptOutputDir, filename), body);
+        requestsInProgress -= 1;
     })
-    .on('error', handleHttpError);
 }
 
 function buildOutputCssFile () {
@@ -216,7 +200,7 @@ function buildOutputCssFile () {
 
         for (i = fontfaceList[fontKey].length - 1; i >= 0; i--) {
             splittedArray = fontfaceList[fontKey][i].split('|');
-            
+
             fontFormat = splittedArray[0];
             fontGoogleFontsUrl = splittedArray[1];
 
